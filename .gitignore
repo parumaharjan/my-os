@@ -1,0 +1,16 @@
+# build output
+obj/
+*.o
+
+mykernel.bin
+*.bin
+*.elf
+
+# editor junk
+.vscode/
+.idea/
+*.swp
+*~
+
+# system noise
+.DS_Store
