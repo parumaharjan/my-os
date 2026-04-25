@@ -10,6 +10,7 @@
 #include <shell.h>
 #include <processes.h>
 #include <vga.h>
+#include <paging.h>
 
 using namespace myos;
 using namespace myos::common;
@@ -17,7 +18,7 @@ using namespace myos::drivers;
 using namespace myos::hardwarecommunication;
 
 
-// ===================== SCHEDULER GLUE =====================
+/// ===================== SCHEDULER GLUE =====================
 
 bool schedulerEnabled = false;
 
@@ -29,30 +30,44 @@ CPUState* scheduleNext(CPUState* cpustate)
 
     // ── Scheduling trail on row 22 ──────────────────────────────
     static int col = 0;
-    int cur = Scheduler::active->current;
-    if(cur >= 0 && Scheduler::active->procs[cur].active)
-    {
-        uint16_t* V = (uint16_t*)0xb8000;
-        const char* name = Scheduler::active->procs[cur].name;
+    uint16_t* V = (uint16_t*)0xb8000;
 
-        // Each task gets its own color
+    const char* name  = 0;
+    uint8_t     color = 0x0F;
+
+    // Check if we just scheduled a thread or a process
+    int curT = Scheduler::active->currentThread;
+    int curP = Scheduler::active->current;
+
+    if(Scheduler::active->threadTurn
+       && curT >= 0
+       && Scheduler::active->threads[curT].active)
+    {
+        // A thread ran — show thread name in yellow
+        name  = Scheduler::active->threads[curT].name;
+        color = 0x0E;
+    }
+    else if(curP >= 0 && Scheduler::active->procs[curP].active)
+    {
+        // A process ran — show process name with per-task color
+        name = Scheduler::active->procs[curP].name;
         uint8_t colors[MAX_PROCS];
         for(int i = 0; i < MAX_PROCS; i++) colors[i] = 0x0F;
         colors[0] = 0x0A; // task-a green
         colors[1] = 0x0C; // task-b red
         colors[2] = 0x0B; // task-c cyan
-        uint8_t color = colors[cur];
+        color = colors[curP];
+    }
 
-        // Write name
+    if(name)
+    {
+        // Write name to trail
         for(int j = 0; name[j] && col < 77; j++, col++)
             V[22*80 + col] = ((uint16_t)color << 8) | (uint8_t)name[j];
 
-        // Arrow
-        if(col < 77)
-        {
-            V[22*80 + col++] = (0x08 << 8) | '-';
-            V[22*80 + col++] = (0x08 << 8) | '>';
-        }
+        // Arrow separator
+        if(col < 77) V[22*80 + col++] = (0x08 << 8) | '-';
+        if(col < 77) V[22*80 + col++] = (0x08 << 8) | '>';
 
         // Row full — clear and restart
         if(col >= 77)
@@ -65,7 +80,6 @@ CPUState* scheduleNext(CPUState* cpustate)
 
     return next;
 }
-
 // ===================== KERNEL MAIN =====================
 
 extern "C" void kernelMain(const void* multiboot_structure, uint32_t)
@@ -78,15 +92,24 @@ extern "C" void kernelMain(const void* multiboot_structure, uint32_t)
     // ===================== 2. HEAP =====================
     MemoryManager memman(10 * 1024 * 1024, 1 * 1024 * 1024);
 
+    // ===================== 2b. PAGING =====================
+    PageDirectory pageDir;
+    pageDir.identityMap(64 * 1024 * 1024);
+    pageDir.load();
+    PageDirectory::enable();
+
     // ===================== 3. INTERRUPTS =====================
     InterruptManager interrupts(0x20, &gdt);
 
     // ===================== 4. SCHEDULER =====================
     Scheduler scheduler;
 
-    scheduler.createProcess(taskA_func, "task-a");
-    scheduler.createProcess(taskB_func, "task-b");
+    Process* pa = scheduler.createProcess(taskA_func, "task-a");
+    Process* pb = scheduler.createProcess(taskB_func, "task-b");
     scheduler.createProcess(taskC_func, "task-c");
+
+    scheduler.createThread(pa->pid, threadA_func, "thread-a");
+    scheduler.createThread(pb->pid, threadB_func, "thread-b");
 
     // ===================== 5. DRIVERS =====================
     DriverManager drvManager;

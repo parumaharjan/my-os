@@ -1,6 +1,7 @@
 #include <shell.h>
 #include <vga.h>
 #include <memorymanagement.h>
+#include <paging.h>
 
 // ===================== STRING UTILS (local to shell) =====================
 
@@ -41,8 +42,8 @@ void Shell::start()
 
     // Draw permanent status bar on row 24
     myos::common::uint16_t* V = (myos::common::uint16_t*)0xb8000;
-    const char* bar = "[ task-a: A ]          [ task-b: B ]"
-                      "          [ task-c: C ]          ";
+    const char* bar = "[ A ]      [ B ]      [ C ]      "
+                      "[ TA ]     [ TB ]               ";
     for(int i = 0; i < 80 && bar[i]; i++)
         V[24*80 + i] = (0x08 << 8) | (myos::common::uint8_t)bar[i];
 
@@ -83,32 +84,40 @@ void Shell::execute(char* cmd)
     strcpy(scratch, cmd);
     char* args = splitArgs(scratch);
 
-    if(streq(scratch, "help"))    { cmdHelp();     return; }
-    if(streq(scratch, "clear"))   { cmdClear();    return; }
-    if(streq(scratch, "echo"))    { cmdEcho(args); return; }
-    if(streq(scratch, "ps"))      { cmdPs();       return; }
-    if(streq(scratch, "kill"))    { cmdKill(args); return; }
-    if(streq(scratch, "version")) { cmdVersion();  return; }
-    if(streq(scratch, "meminfo")) { cmdMeminfo();  return; }
-    if(streq(scratch, "reboot"))  { cmdReboot();   return; }
+    if(streq(scratch, "help"))       { cmdHelp();            return; }
+    if(streq(scratch, "clear"))      { cmdClear();           return; }
+    if(streq(scratch, "echo"))       { cmdEcho(args);        return; }
+    if(streq(scratch, "ps"))         { cmdPs();              return; }
+    if(streq(scratch, "threads"))    { cmdThreads();         return; }
+    if(streq(scratch, "kill"))       { cmdKill(args);        return; }
+    if(streq(scratch, "killthread")) { cmdKillThread(args);  return; }
+    if(streq(scratch, "version"))    { cmdVersion();         return; }
+    if(streq(scratch, "meminfo"))    { cmdMeminfo();         return; }
+    if(streq(scratch, "paging"))     { cmdPaging();          return; }
+    if(streq(scratch, "reboot"))     { cmdReboot();          return; }
 
     printf("\nUnknown: ", 0x0C);
     printf(scratch, 0x0C);
     printf("  (type 'help')", 0x08);
 }
 
+// ===================== COMMANDS =====================
+
 void Shell::cmdHelp()
 {
     printf("\n--- Commands ---\n", 0x0E);
-    printf("  help       show this list\n",                    0x0F);
-    printf("  clear      clear screen\n",                      0x0F);
-    printf("  echo <x>   print text\n",                        0x0F);
-    printf("  ps         list processes\n",                     0x0F);
-    printf("  kill <pid> terminate a process\n",                0x0F);
-    printf("  meminfo    heap details\n",                       0x0F);
-    printf("  version    kernel info\n",                        0x0F);
-    printf("  reboot     cold reboot\n",                        0x0F);
-    printf("\n  Row 24 = live task tick counters\n",            0x08);
+    printf("  help             show this list\n",             0x0F);
+    printf("  clear            clear screen\n",               0x0F);
+    printf("  echo <x>         print text\n",                 0x0F);
+    printf("  ps               list processes\n",             0x0F);
+    printf("  threads          list all threads\n",           0x0F);
+    printf("  kill <pid>       terminate a process\n",        0x0F);
+    printf("  killthread <tid> terminate a thread\n",         0x0F);
+    printf("  meminfo          heap details\n",               0x0F);
+    printf("  paging           show CR0/CR3/PSE status\n",   0x0F);
+    printf("  version          kernel info\n",                0x0F);
+    printf("  reboot           cold reboot\n",                0x0F);
+    printf("\n  Row 24 = live tick counters\n",               0x08);
 }
 
 void Shell::cmdClear()
@@ -132,19 +141,44 @@ void Shell::cmdPs()
     bool any = false;
     for(int i = 0; i < MAX_PROCS; i++)
     {
-        if(sched->procs[i].active)
-        {
-            bool isCur = (i == sched->current);
-            myos::common::uint8_t col = isCur ? 0x0A : 0x0F;
+        if(!sched->procs[i].active) continue;
 
-            printInt(sched->procs[i].pid);
-            printf(isCur ? "    RUNNING   " : "    ready     ", col);
-            printf(sched->procs[i].name, col);
-            putChar('\n');
-            any = true;
-        }
+        bool isCur = (i == sched->current);
+        myos::common::uint8_t col = isCur ? 0x0A : 0x0F;
+
+        printInt(sched->procs[i].pid);
+        printf(isCur ? "    RUNNING   " : "    ready     ", col);
+        printf(sched->procs[i].name, col);
+        putChar('\n');
+        any = true;
     }
     if(!any) printf("(no processes)\n", 0x08);
+}
+
+void Shell::cmdThreads()
+{
+    printf("\nTID  OWNER  STATUS    NAME\n", 0x0E);
+    printf("---  -----  ------    ----\n",  0x08);
+    if(!sched) { printf("no scheduler\n", 0x0C); return; }
+
+    bool any = false;
+    for(int i = 0; i < MAX_THREADS; i++)
+    {
+        myos::Thread& t = sched->threads[i];
+        if(!t.active) continue;
+
+        bool isCur = (i == sched->currentThread);
+        myos::common::uint8_t col = isCur ? 0x0A : 0x0F;
+
+        printInt(t.tid);
+        printf("    ", 0x0F);
+        printInt(t.ownerPid);
+        printf(isCur ? "      RUNNING   " : "      ready     ", col);
+        printf(t.name, col);
+        putChar('\n');
+        any = true;
+    }
+    if(!any) printf("(no threads)\n", 0x08);
 }
 
 void Shell::cmdKill(char* args)
@@ -157,6 +191,7 @@ void Shell::cmdKill(char* args)
 
     if(!sched) return;
 
+    // Find slot first so we can report name and clear status bar
     int slot = -1;
     for(int i = 0; i < MAX_PROCS; i++)
         if(sched->procs[i].active && sched->procs[i].pid == pid)
@@ -165,26 +200,26 @@ void Shell::cmdKill(char* args)
     if(slot == -1)
     {
         printf("\nNo process with PID ", 0x0C);
-        printInt(pid);
-        putChar('\n');
+        printInt(pid); putChar('\n');
         return;
     }
 
     char killedName[32];
     strcpy(killedName, sched->procs[slot].name);
 
+    // This also kills all threads owned by this process
     sched->killProcess(pid);
 
     // Clear that task's column on the status bar (row 24)
     myos::common::uint16_t* V = (myos::common::uint16_t*)0xb8000;
     int clearCol = -1;
     if(streq(killedName, "task-a")) clearCol = 0;
-    else if(streq(killedName, "task-b")) clearCol = 27;
-    else if(streq(killedName, "task-c")) clearCol = 54;
+    else if(streq(killedName, "task-b")) clearCol = 10;
+    else if(streq(killedName, "task-c")) clearCol = 20;
 
     if(clearCol >= 0)
     {
-        const char* dead = "[terminated]     ";
+        const char* dead = "[dead]    ";
         for(int i = 0; dead[i] && clearCol+i < 80; i++)
             V[24*80 + clearCol + i] = (0x08 << 8)
                                     | (myos::common::uint8_t)dead[i];
@@ -192,17 +227,54 @@ void Shell::cmdKill(char* args)
 
     printf("\nKilled PID ", 0x0A);
     printInt(pid);
-    printf(" (", 0x08);
-    printf(killedName, 0x08);
-    printf(")\n", 0x08);
+    printf(" (", 0x08); printf(killedName, 0x08); printf(")\n", 0x08);
+    printf("All threads owned by this process also killed.\n", 0x08);
+}
+
+void Shell::cmdKillThread(char* args)
+{
+    if(!args || !args[0])
+    { printf("\nusage: killthread <tid>\n", 0x0C); return; }
+
+    myos::common::uint32_t tid = 0;
+    for(int i = 0; args[i] >= '0' && args[i] <= '9'; i++)
+        tid = tid * 10 + (args[i] - '0');
+
+    if(!sched) return;
+
+    // Find thread so we can report its name
+    int slot = -1;
+    for(int i = 0; i < MAX_THREADS; i++)
+        if(sched->threads[i].active && sched->threads[i].tid == tid)
+        { slot = i; break; }
+
+    if(slot == -1)
+    {
+        printf("\nNo thread with TID ", 0x0C);
+        printInt(tid); putChar('\n');
+        return;
+    }
+
+    char tname[32];
+    strcpy(tname, sched->threads[slot].name);
+    myos::common::uint32_t ownerPid = sched->threads[slot].ownerPid;
+
+    sched->killThread(tid);
+
+    printf("\nKilled thread TID ", 0x0A);
+    printInt(tid);
+    printf(" (", 0x08); printf(tname, 0x08);
+    printf(") owned by PID ", 0x08);
+    printInt(ownerPid);
+    printf("\nProcess still running — only this thread stopped.\n", 0x08);
 }
 
 void Shell::cmdVersion()
 {
     printf("\nMyOS 0.1  |  kernel built from scratch\n", 0x0B);
     printf("Arch: x86 32-bit  |  Boot: GRUB/Multiboot\n", 0x08);
-    printf("Features: GDT, IDT, PIC, keyboard,\n",        0x08);
-    printf("          heap alloc, round-robin scheduler\n", 0x08);
+    printf("Features: GDT, IDT, PIC, paging (PSE),\n",    0x08);
+    printf("          heap, round-robin, processes+threads\n", 0x08);
 }
 
 void Shell::cmdMeminfo()
@@ -235,6 +307,36 @@ void Shell::cmdMeminfo()
     printInt(frag);
     printf(frag ? " adjacent free chunks (fragmented)\n"
                 : " (no fragmentation)\n", 0x0F);
+}
+
+void Shell::cmdPaging()
+{
+    printf("\n--- Paging Status ---\n", 0x0E);
+
+    myos::common::uint32_t cr0;
+    asm volatile("mov %%cr0, %0" : "=r"(cr0));
+    bool pagingOn = (cr0 & 0x80000000) != 0;
+    printf("  CR0 PG bit   : ", 0x0F);
+    printf(pagingOn ? "SET (paging ON)\n" : "CLEAR (paging OFF)\n",
+           pagingOn ? 0x0A : 0x0C);
+
+    myos::common::uint32_t cr4;
+    asm volatile("mov %%cr4, %0" : "=r"(cr4));
+    bool pseOn = (cr4 & 0x00000010) != 0;
+    printf("  CR4 PSE bit  : ", 0x0F);
+    printf(pseOn ? "SET (4MB pages ON)\n" : "CLEAR\n",
+           pseOn ? 0x0A : 0x0C);
+
+    myos::common::uint32_t cr3;
+    asm volatile("mov %%cr3, %0" : "=r"(cr3));
+    printf("  CR3 (pagedir): 0x", 0x0F);
+    for(int i = 28; i >= 0; i -= 4)
+        putChar("0123456789ABCDEF"[(cr3 >> i) & 0xF], 0x0B);
+    putChar('\n');
+
+    printf("  Page size    : 4 MB per entry (PSE)\n", 0x0F);
+    printf("  Mapped range : 0x00000000 - 0x03FFFFFF (64 MB)\n", 0x0F);
+    printf("  Mode         : identity map (virt == phys)\n", 0x08);
 }
 
 void Shell::cmdReboot()

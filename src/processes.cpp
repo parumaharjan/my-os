@@ -1,5 +1,9 @@
 #include <processes.h>
 #include <common/types.h>
+#include <memorymanagement.h>
+
+void* threadA_mem = 0;
+void* threadB_mem = 0;
 
 // Each task writes its live tick counter into a fixed column
 // on VGA row 24 (status bar) so round-robin is visible without
@@ -60,5 +64,27 @@ void taskC_func()
     {
         writeStatusCell(54, "C:", ticks++, 0x1F);
         for(volatile int d = 0; d < 500000; d++);
+    }
+}
+
+void threadA_func()
+{
+    threadA_mem = MemoryManager::active->malloc(512);
+    myos::common::uint32_t ticks = 0;
+    while(1)
+    {
+        writeStatusCell(42, "TA:", ticks++, 0x0E);
+        for(volatile int d = 0; d < 300000; d++);
+    }
+}
+
+void threadB_func()
+{
+    threadB_mem = MemoryManager::active->malloc(256);
+    myos::common::uint32_t ticks = 0;
+    while(1)
+    {
+        writeStatusCell(56, "TB:", ticks++, 0x0E);
+        for(volatile int d = 0; d < 300000; d++);
     }
 }

@@ -19,6 +19,7 @@ objects = \
 	obj/scheduler.o \
 	obj/processes.o \
 	obj/shell.o \
+	obj/paging.o \
 	obj/kernel.o
 
 all: mykernel.iso

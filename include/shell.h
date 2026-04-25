@@ -20,9 +20,12 @@ class Shell : public myos::drivers::KeyboardEventHandler
     void cmdClear();
     void cmdEcho(char* args);
     void cmdPs();
+    void cmdThreads();
     void cmdKill(char* args);
+    void cmdKillThread(char* args);
     void cmdVersion();
     void cmdMeminfo();
+    void cmdPaging();
     void cmdReboot();
 
 public:
