@@ -3,45 +3,32 @@
 
 #include <common/types.h>
 #include <drivers/keyboard.h>
+#include <scheduler.h>
 
-namespace myos {
+#define BUF_SIZE 256
 
-// ── forward declarations ────────────────────────────────────────────────────
-struct  MemoryChunk;
-class   MemoryManager;
-struct  Process;
-class   Scheduler;
-
-// ── Shell ───────────────────────────────────────────────────────────────────
-#define SHELL_BUF_SIZE 256
-
-class Shell : public drivers::KeyboardEventHandler
+class Shell : public myos::drivers::KeyboardEventHandler
 {
-    char       inputBuffer[SHELL_BUF_SIZE];
-    int        bufPos;
-    Scheduler* scheduler;
+    char     buf[BUF_SIZE];
+    int      bufPos;
+    myos::Scheduler* sched;
 
-    // internal helpers
     void printPrompt();
     void execute(char* cmd);
 
-    // commands
     void cmdHelp();
     void cmdClear();
     void cmdEcho(char* args);
     void cmdPs();
     void cmdKill(char* args);
-    void cmdMeminfo();
-    void cmdMemtest();
     void cmdVersion();
+    void cmdMeminfo();
     void cmdReboot();
 
 public:
-    Shell(Scheduler* sched);
-    void Run();                          // call once after kernel init
+    Shell(myos::Scheduler* s);
+    void start();
     void OnKeyDown(char c) override;
 };
-
-} // namespace myos
 
 #endif

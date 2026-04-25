@@ -1,29 +1,30 @@
-// include/memorymanagement.h
-#ifndef __MEMORYMANAGEMENT_H
-#define __MEMORYMANAGEMENT_H
-#include "common/types.h"
+#ifndef __MYOS__MEMORYMANAGEMENT_H
+#define __MYOS__MEMORYMANAGEMENT_H
 
-struct MemoryChunk {
-    MemoryChunk *next, *prev;
-    bool allocated;
-    size_t size;
+#include <common/types.h>
+
+struct MemoryChunk
+{
+    MemoryChunk*            next;
+    MemoryChunk*            prev;
+    bool                    allocated;
+    myos::common::uint32_t  size;
 };
 
-class MemoryManager {
-protected:
-    MemoryChunk* first;
+class MemoryManager
+{
 public:
-    static MemoryManager *ActiveMemoryManager;
-    MemoryManager(size_t start, size_t size);
-    ~MemoryManager();
-    void* malloc(size_t size);
+    MemoryChunk*         first;
+    static MemoryManager* active;
+
+    MemoryManager(myos::common::uint32_t start, myos::common::uint32_t size);
+
+    void* malloc(myos::common::uint32_t size);
     void  free(void* ptr);
 };
 
-void* operator new(size_t size);
-void* operator new[](size_t size);
-void* operator new(size_t size, void* ptr);
-void* operator new[](size_t size, void* ptr);
+void* operator new(myos::common::uint32_t size);
+void* operator new[](myos::common::uint32_t size);
 void  operator delete(void* ptr);
 void  operator delete[](void* ptr);
 

@@ -1,5 +1,3 @@
-
-
 .set IRQ_BASE, 0x20
 
 .section .text
@@ -60,40 +58,29 @@ HandleInterruptRequest 0x0C
 HandleInterruptRequest 0x0D
 HandleInterruptRequest 0x0E
 HandleInterruptRequest 0x0F
-HandleInterruptRequest 0x31
 
 int_bottom:
-
-    # register sichern
     pusha
     pushl %ds
     pushl %es
     pushl %fs
     pushl %gs
 
-    # ring 0 segment register laden
-    #cld
-    #mov $0x10, %eax
-    #mov %eax, %eds
-    #mov %eax, %ees
-
-    # C++ Handler aufrufen
     pushl %esp
     push (interruptnumber)
     call _ZN4myos21hardwarecommunication16InterruptManager15HandleInterruptEhj
-    add %esp, 6
-    mov %eax, %esp # den stack wechseln
+    add $6, %esp
+    mov %eax, %esp
 
-    # register laden
     pop %gs
     pop %fs
     pop %es
     pop %ds
     popa
+    iret
 
 .global _ZN4myos21hardwarecommunication16InterruptManager15InterruptIgnoreEv
 _ZN4myos21hardwarecommunication16InterruptManager15InterruptIgnoreEv:
-
     iret
 
 

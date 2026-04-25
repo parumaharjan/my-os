@@ -1,74 +1,84 @@
-// src/scheduler.cpp
-#include "scheduler.h"
-#include "common/types.h"
+#include <scheduler.h>
 
-Scheduler* activeScheduler = 0;
+namespace myos
+{
+    Scheduler* Scheduler::active = 0;
 
-Scheduler::Scheduler() : numProcesses(0), currentProcess(-1), nextPid(1) {
-    for (int i = 0; i < MAX_PROCESSES; i++)
-        processes[i].active = false;
-    activeScheduler = this;
-}
-
-Process* Scheduler::CreateProcess(void (*entrypoint)(), const char* name) {
-    if (numProcesses >= MAX_PROCESSES) return 0;
-
-    // Find free slot
-    int slot = -1;
-    for (int i = 0; i < MAX_PROCESSES; i++) {
-        if (!processes[i].active) { slot = i; break; }
+    Scheduler::Scheduler() : numProcs(0), current(-1), nextPid(1)
+    {
+        for(int i = 0; i < MAX_PROCS; i++) procs[i].active = false;
+        active = this;
     }
-    if (slot == -1) return 0;
 
-    Process* p = &processes[slot];
-    p->pid = nextPid++;
-    p->active = true;
-    p->timeSlice = 3; // 3 ticks per slice
+    Process* Scheduler::createProcess(void (*entry)(), const char* name)
+    {
+        int slot = -1;
+        for(int i = 0; i < MAX_PROCS; i++)
+            if(!procs[i].active) { slot = i; break; }
+        if(slot == -1) return 0;
 
-    // Copy name
-    for (int i = 0; i < 31 && name[i]; i++) p->name[i] = name[i];
-    p->name[31] = 0;
+        Process* p = &procs[slot];
+        p->pid    = nextPid++;
+        p->active = true;
 
-    // Set up fake CPU state at top of stack
-    uint8_t* stackTop = p->stack + STACK_SIZE;
-    stackTop -= sizeof(CPUState);
-    p->cpustate = (CPUState*)stackTop;
+        int i = 0;
+        for(; i < 31 && name[i]; i++) p->name[i] = name[i];
+        p->name[i] = '\0';
 
-    // Zero out, then set EIP and flags
-    uint8_t* s = (uint8_t*)p->cpustate;
-    for (size_t i = 0; i < sizeof(CPUState); i++) s[i] = 0;
-    p->cpustate->eip    = (uint32_t)entrypoint;
-    p->cpustate->cs     = 0x08; // kernel code segment
-    p->cpustate->eflags = 0x202; // interrupts enabled
+        // Place CPUState at top of stack
+        // Stack grows downward — we need room for CPUState AND
+        // the segment registers that int_bottom pushes BEFORE pusha.
+        // Total frame = sizeof(CPUState) bytes.
+        myos::common::uint8_t* stackTop = p->stack + STACK_SIZE;
+        stackTop -= sizeof(CPUState);
+        p->cpustate = (CPUState*)stackTop;
 
-    numProcesses++;
-    return p;
-}
+        myos::common::uint8_t* s = (myos::common::uint8_t*)p->cpustate;
+        for(myos::common::uint32_t j = 0; j < sizeof(CPUState); j++) s[j] = 0;
 
-void Scheduler::KillProcess(uint32_t pid) {
-    for (int i = 0; i < MAX_PROCESSES; i++) {
-        if (processes[i].active && processes[i].pid == pid) {
-            processes[i].active = false;
-            numProcesses--;
-            return;
+        p->cpustate->eip    = (myos::common::uint32_t)entry;
+        p->cpustate->cs     = 0x10;   // ← was 0x08, code segment is at 0x10
+        p->cpustate->eflags = 0x202;
+        p->cpustate->ds     = 0x18;   // ← was 0x10, data segment is at 0x18
+        p->cpustate->es     = 0x18;
+        p->cpustate->fs     = 0x18;
+        p->cpustate->gs     = 0x18;
+
+        numProcs++;
+        return p;
+    }
+
+    void Scheduler::killProcess(myos::common::uint32_t pid)
+    {
+        for(int i = 0; i < MAX_PROCS; i++)
+        {
+            if(procs[i].active && procs[i].pid == pid)
+            {
+                procs[i].active = false;
+                numProcs--;
+                // Reset current so scheduler doesn't save into dead slot
+                if(current == i) current = -1;
+                return;
+            }
         }
     }
-}
 
-CPUState* Scheduler::Schedule(CPUState* cpustate) {
-    if (numProcesses == 0) return cpustate;
+    CPUState* Scheduler::schedule(CPUState* cpustate)
+    {
+        if(numProcs == 0) return cpustate;
 
-    // Save state of current process
-    if (currentProcess >= 0 && processes[currentProcess].active)
-        processes[currentProcess].cpustate = cpustate;
+        // Save current process state
+        if(current >= 0 && procs[current].active)
+            procs[current].cpustate = cpustate;
 
-    // Round-robin: find next active process
-    int tries = MAX_PROCESSES;
-    do {
-        currentProcess = (currentProcess + 1) % MAX_PROCESSES;
-        tries--;
-    } while (!processes[currentProcess].active && tries > 0);
+        // Round-robin: find next active process
+        int tries = MAX_PROCS;
+        do {
+            current = (current + 1) % MAX_PROCS;
+            tries--;
+        } while(!procs[current].active && tries > 0);
 
-    if (tries == 0) return cpustate; // No active process found
-    return processes[currentProcess].cpustate;
+        if(tries == 0) return cpustate;
+        return procs[current].cpustate;
+    }
 }

@@ -1,0 +1,19 @@
+
+=== MyOS Serial Log ===
+MyOS Shell  [type 'help']
+
+myos> help
+
+--- Commands ---
+  help       show this list
+  clear      clear screen
+  echo <x>   print text
+  ps         list processes
+  kill <pid> terminate a process
+  meminfo    heap details
+  version    kernel info
+  reboot     cold reboot
+
+  Row 24 = live task tick counters
+
+myos> 
