@@ -12,7 +12,6 @@ objects = \
 	obj/hardwarecommunication/interrupts.o \
 	obj/drivers/driver.o \
 	obj/drivers/keyboard.o \
-	obj/drivers/mouse.o \
 	obj/init.o \
 	obj/vga.o \
 	obj/memorymanagement.o \

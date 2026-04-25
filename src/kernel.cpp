@@ -4,7 +4,6 @@
 #include <hardwarecommunication/interrupts.h>
 #include <drivers/driver.h>
 #include <drivers/keyboard.h>
-#include <drivers/mouse.h>
 #include <scheduler.h>
 #include <memorymanagement.h>
 #include <shell.h>
@@ -117,12 +116,10 @@ extern "C" void kernelMain(const void* multiboot_structure, uint32_t)
     Shell shell(&scheduler);
 
     KeyboardDriver keyboard(&interrupts, &shell);
-   // MouseDriver mouse(&interrupts, &shell);
 
     drvManager.AddDriver(&keyboard);
-   //  drvManager.AddDriver(&mouse);
-
     drvManager.ActivateAll();
+    
     interrupts.Activate();
 
     // ===================== 6. ENABLE SCHEDULER =====================
